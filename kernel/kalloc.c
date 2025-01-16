@@ -19,8 +19,8 @@ struct run {
 };
 
 struct {
-  struct spinlock lock;
-  struct run *freelist;
+  struct spinlock lock; // 每次操作空闲列表时，先需要获取该锁
+  struct run *freelist; // 指向空闲列表的指针
 } kmem;
 
 void
@@ -36,7 +36,7 @@ freerange(void *pa_start, void *pa_end)
   char *p;
   p = (char*)PGROUNDUP((uint64)pa_start);
   for(; p + PGSIZE <= (char*)pa_end; p += PGSIZE)
-    kfree(p);
+    kfree(p); // 每PGSIZE字节为一块空闲内存块
 }
 
 // Free the page of physical memory pointed at by pa,
@@ -80,3 +80,17 @@ kalloc(void)
     memset((char*)r, 5, PGSIZE); // fill with junk
   return (void*)r;
 }
+
+// 获取当前空闲内存的大小，单位为字节
+uint64
+kfreemem(void)
+{
+  uint64 n;
+  struct run *r;
+  acquire(&kmem.lock);  // 先获取锁
+  for(n = 0, r = kmem.freelist; r; r = r->next){
+    n++;
+  }
+  release(&kmem.lock);
+  return n * PGSIZE;
+  }

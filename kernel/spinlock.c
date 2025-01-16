@@ -68,7 +68,7 @@ release(struct spinlock *lk)
   //   amoswap.w zero, zero, (s1)
   __sync_lock_release(&lk->locked);
 
-  pop_off();
+  pop_off();  //init interrupts
 }
 
 // Check whether this cpu is holding the lock.
@@ -105,6 +105,6 @@ pop_off(void)
   if(c->noff < 1)
     panic("pop_off");
   c->noff -= 1;
-  if(c->noff == 0 && c->intena)
+  if(c->noff == 0 && c->intena) //如果计数变成0并且在上锁之前中断是启用的，那么开启中断
     intr_on();
 }

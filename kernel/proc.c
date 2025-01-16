@@ -61,6 +61,7 @@ procinit(void)
 // Must be called with interrupts disabled,
 // to prevent race with process being moved
 // to a different CPU.
+// 返回cpu核心编号
 int
 cpuid()
 {
@@ -82,7 +83,7 @@ mycpu(void)
 struct proc*
 myproc(void)
 {
-  push_off();
+  push_off(); // disable interrupts to ensure pid is consistent
   struct cpu *c = mycpu();
   struct proc *p = c->proc;
   pop_off();
@@ -146,6 +147,8 @@ found:
   p->context.ra = (uint64)forkret;
   p->context.sp = p->kstack + PGSIZE;
 
+  // For lab2 system call trace
+  p->tracemask = 0;
   return p;
 }
 
@@ -295,7 +298,7 @@ fork(void)
     return -1;
   }
   np->sz = p->sz;
-
+  np->tracemask = p->tracemask; // 复制trace的mask
   // copy saved user registers.
   *(np->trapframe) = *(p->trapframe);
 
@@ -680,4 +683,17 @@ procdump(void)
     printf("%d %s %s", p->pid, state, p->name);
     printf("\n");
   }
+}
+
+int
+nproc(void)
+{
+  int i;
+  int num = 0;
+  for(i = 0; i < NPROC; i++) {
+    if(proc[i].state != UNUSED) {
+      num++;
+    }
+  }
+  return num;
 }

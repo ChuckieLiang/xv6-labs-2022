@@ -94,6 +94,11 @@ uservec:
         # flush now-stale user entries from the TLB.
         sfence.vma zero, zero
 
+        # <自此：地址空间已经从用户地址空间切换进入内核地址空间>
+        # 所有地址翻译都将通过内核页表进行，但是原有地址翻译完全被打破
+        # 但是因为trampoline.S的代码映射在内核和用户空间中保持一致
+        # 所以代码得以连续不断地继续执行(PC的连续性得以保持)
+        
         # jump to usertrap(), which does not return
         jr t0
 

@@ -1,9 +1,9 @@
 // Saved registers for kernel context switches.
 struct context {
-  uint64 ra;
-  uint64 sp;
+  uint64 ra;  // 返回地址寄存器（Return Address）
+  uint64 sp;  // 栈指针寄存器（Stack Pointer）
 
-  // callee-saved
+  // 被调用者保存的寄存器（Callee-saved registers）
   uint64 s0;
   uint64 s1;
   uint64 s2;
@@ -21,9 +21,9 @@ struct context {
 // Per-CPU state.
 struct cpu {
   struct proc *proc;          // The process running on this cpu, or null.
-  struct context context;     // swtch() here to enter scheduler().
-  int noff;                   // Depth of push_off() nesting.
-  int intena;                 // Were interrupts enabled before push_off()?
+  struct context context;     // swtch() here to enter scheduler(). // 保存切换到调度器（scheduler）时的上下文
+  int noff;                   // Depth of push_off() nesting. // push_off() 的嵌套深度
+  int intena;                 // Were interrupts enabled before push_off()? // 在 push_off() 之前是否启用中断
 };
 
 extern struct cpu cpus[NCPU];
@@ -43,10 +43,10 @@ extern struct cpu cpus[NCPU];
 struct trapframe {
   /*   0 */ uint64 kernel_satp;   // kernel page table
   /*   8 */ uint64 kernel_sp;     // top of process's kernel stack
-  /*  16 */ uint64 kernel_trap;   // usertrap()
-  /*  24 */ uint64 epc;           // saved user program counter
-  /*  32 */ uint64 kernel_hartid; // saved kernel tp
-  /*  40 */ uint64 ra;
+  /*  16 */ uint64 kernel_trap;   // usertrap() // 指向 `usertrap()` 的地址
+  /*  24 */ uint64 epc;           // saved user program counter // 用户程序计数器，保存用户态的下一条指令地址
+  /*  32 */ uint64 kernel_hartid; // saved kernel tp  // 内核线程 ID
+  /*  40 */ uint64 ra;            // 各种用户态寄存器
   /*  48 */ uint64 sp;
   /*  56 */ uint64 gp;
   /*  64 */ uint64 tp;
@@ -87,9 +87,9 @@ struct proc {
 
   // p->lock must be held when using these:
   enum procstate state;        // Process state
-  void *chan;                  // If non-zero, sleeping on chan
+  void *chan;                  // If non-zero, sleeping on chan // 进程睡眠时等待的事件
   int killed;                  // If non-zero, have been killed
-  int xstate;                  // Exit status to be returned to parent's wait
+  int xstate;                  // Exit status to be returned to parent's wait // 退出状态，供父进程使用
   int pid;                     // Process ID
 
   // wait_lock must be held when using this:
@@ -104,4 +104,6 @@ struct proc {
   struct file *ofile[NOFILE];  // Open files
   struct inode *cwd;           // Current directory
   char name[16];               // Process name (debugging)
+
+  int tracemask;
 };

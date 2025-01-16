@@ -95,6 +95,7 @@ stat(const char *n, struct stat *st)
   return r;
 }
 
+// ascii to integer
 int
 atoi(const char *s)
 {

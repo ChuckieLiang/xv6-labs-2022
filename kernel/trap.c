@@ -47,7 +47,7 @@ usertrap(void)
 
   struct proc *p = myproc();
   
-  // save user program counter.
+  // save user program counter.由于当前进程可能会由于时间片不足被切换到其它进程，所以这里我们不能保证sepc是否会被其它进程冲掉（比如它再进行一次系统调用）
   p->trapframe->epc = r_sepc();
   
   if(r_scause() == 8){
@@ -97,8 +97,8 @@ usertrapret(void)
   intr_off();
 
   // send syscalls, interrupts, and exceptions to uservec in trampoline.S
-  uint64 trampoline_uservec = TRAMPOLINE + (uservec - trampoline);
-  w_stvec(trampoline_uservec);
+  uint64 trampoline_uservec = TRAMPOLINE + (uservec - trampoline);  //计算出uservec的函数地址
+  w_stvec(trampoline_uservec);  //将uservec函数地址写回stvec，因为此前被kernelvec函数地址覆盖了
 
   // set up trapframe values that uservec will need when
   // the process next traps into the kernel.
@@ -126,6 +126,7 @@ usertrapret(void)
   // switches to the user page table, restores user registers,
   // and switches to user mode with sret.
   uint64 trampoline_userret = TRAMPOLINE + (userret - trampoline);
+  // 传入了参数satp，按照calling convention，这参数将会被放置到a0
   ((void (*)(uint64))trampoline_userret)(satp);
 }
 
