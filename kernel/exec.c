@@ -19,6 +19,8 @@ int flags2perm(int flags)
     return perm;
 }
 
+
+
 int
 exec(char *path, char **argv)
 {
@@ -31,13 +33,13 @@ exec(char *path, char **argv)
   pagetable_t pagetable = 0, oldpagetable;
   struct proc *p = myproc();
 
-  begin_op();
+  begin_op(); // 保证文件系统的一致性。
 
-  if((ip = namei(path)) == 0){
+  if((ip = namei(path)) == 0){  // 通过 namei 查找并获取程序文件 path 对应的 inode
     end_op();
     return -1;
   }
-  ilock(ip);
+  ilock(ip);  // 锁定文件的 inode 以防止其他进程修改
 
   // Check ELF header
   if(readi(ip, 0, (uint64)&elf, 0, sizeof(elf)) != sizeof(elf))
@@ -50,22 +52,22 @@ exec(char *path, char **argv)
     goto bad;
 
   // Load program into memory.
-  for(i=0, off=elf.phoff; i<elf.phnum; i++, off+=sizeof(ph)){
+  for(i=0, off=elf.phoff; i<elf.phnum; i++, off+=sizeof(ph)){ // 遍历 ELF 文件的每个程序头
     if(readi(ip, 0, (uint64)&ph, off, sizeof(ph)) != sizeof(ph))
       goto bad;
-    if(ph.type != ELF_PROG_LOAD)
+    if(ph.type != ELF_PROG_LOAD)  // 检查是否为需要加载的程序段
       continue;
-    if(ph.memsz < ph.filesz)
+    if(ph.memsz < ph.filesz)  // 内存大小不小于文件大小
       goto bad;
-    if(ph.vaddr + ph.memsz < ph.vaddr)
+    if(ph.vaddr + ph.memsz < ph.vaddr)  // 内存地址空间有效
       goto bad;
-    if(ph.vaddr % PGSIZE != 0)
+    if(ph.vaddr % PGSIZE != 0)  // 程序段地址必须页对齐
       goto bad;
     uint64 sz1;
-    if((sz1 = uvmalloc(pagetable, sz, ph.vaddr + ph.memsz, flags2perm(ph.flags))) == 0)
+    if((sz1 = uvmalloc(pagetable, sz, ph.vaddr + ph.memsz, flags2perm(ph.flags))) == 0) // 为每个有效的程序段分配内存（使用 uvmalloc）
       goto bad;
-    sz = sz1;
-    if(loadseg(pagetable, ph.vaddr, ip, ph.off, ph.filesz) < 0)
+    sz = sz1; // uvmalloc 返回分配后的新内存大小，将其赋值给 sz1。然后 sz 被更新为 sz1，表示当前进程使用的总内存大小
+    if(loadseg(pagetable, ph.vaddr, ip, ph.off, ph.filesz) < 0) // 将程序段的内容加载到内存中
       goto bad;
   }
   iunlockput(ip);
@@ -73,12 +75,12 @@ exec(char *path, char **argv)
   ip = 0;
 
   p = myproc();
-  uint64 oldsz = p->sz;
+  uint64 oldsz = p->sz; // 旧进程的大小
 
   // Allocate two pages at the next page boundary.
   // Make the first inaccessible as a stack guard.
   // Use the second as the user stack.
-  sz = PGROUNDUP(sz);
+  sz = PGROUNDUP(sz); // 当前进程的总虚拟内存大小
   uint64 sz1;
   if((sz1 = uvmalloc(pagetable, sz, sz + 2*PGSIZE, PTE_W)) == 0)
     goto bad;

@@ -105,7 +105,7 @@ walk(pagetable_t pagetable, uint64 va, int alloc)
       *pte = PA2PTE(pagetable) | PTE_V; //设置Vaild位
     }
   }
-  return &pagetable[PX(0, va)]; //最后一轮寻址
+  return &pagetable[PX(0, va)]; //最后一轮寻址,第三级的pagetable的pte中的地址
 }
 
 // Look up a virtual address, return the physical address,
@@ -160,7 +160,7 @@ mappages(pagetable_t pagetable, uint64 va, uint64 size, uint64 pa, int perm)
   for(;;){
     if((pte = walk(pagetable, a, 1)) == 0)
       return -1;
-    if(*pte & PTE_V)
+    if(*pte & PTE_V)  // 此PTE已经存在
       panic("mappages: remap");
     *pte = PA2PTE(pa) | perm | PTE_V; //将物理地址写入对应的PTE，并设置低10位
     if(a == last)
@@ -366,7 +366,7 @@ copyout(pagetable_t pagetable, uint64 dstva, char *src, uint64 len)
     pa0 = walkaddr(pagetable, va0); // 找到目的地址（虚拟地址描述的）对应的物理地址
     if(pa0 == 0)
       return -1;
-    n = PGSIZE - (dstva - va0);
+    n = PGSIZE - (dstva - va0); // 计算需要拷贝的字节数
     if(n > len)
       n = len;
     memmove((void *)(pa0 + (dstva - va0)), src, n);
