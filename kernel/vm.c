@@ -177,17 +177,19 @@ uvmunmap(pagetable_t pagetable, uint64 va, uint64 npages, int do_free)
     panic("uvmunmap: not aligned");
 
   for(a = va; a < va + npages*PGSIZE; a += PGSIZE){
-    if((pte = walk(pagetable, a, 0)) == 0)
+    if((pte = walk(pagetable, a, 0)) == 0)  
       panic("uvmunmap: walk");
     if((*pte & PTE_V) == 0)
       panic("uvmunmap: not mapped");
+    //  只有当 X、W、R 位中的至少一个被设置时，该页表项才是一个叶子节点，直接映射到物理内存。
+    //  如果是叶子节点，则可以安全地释放对应的物理内存；如果不是叶子节点，则表示该页表项指向了下一级页表，不应该直接释放物理内存。
     if(PTE_FLAGS(*pte) == PTE_V)
       panic("uvmunmap: not a leaf");
     if(do_free){
       uint64 pa = PTE2PA(*pte);
       kfree((void*)pa);
     }
-    *pte = 0;
+    *pte = 0; // 清除当前页表项，将其标记为无效。
   }
 }
 
@@ -278,7 +280,7 @@ freewalk(pagetable_t pagetable)
       // this PTE points to a lower-level page table.
       uint64 child = PTE2PA(pte);
       freewalk((pagetable_t)child);
-      pagetable[i] = 0;
+      pagetable[i] = 0; // 清除当前页表项，将其标记为无效。
     } else if(pte & PTE_V){
       panic("freewalk: leaf");
     }
@@ -292,8 +294,8 @@ void
 uvmfree(pagetable_t pagetable, uint64 sz)
 {
   if(sz > 0)
-    uvmunmap(pagetable, 0, PGROUNDUP(sz)/PGSIZE, 1);
-  freewalk(pagetable);
+    uvmunmap(pagetable, 0, PGROUNDUP(sz)/PGSIZE, 1);  // 移除用户内存页，并释放对应的物理内存。
+  freewalk(pagetable);  // 递归地释放页表页，并释放对应的物理内存。
 }
 
 // Given a parent process's page table, copy
@@ -435,5 +437,35 @@ copyinstr(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max)
     return 0;
   } else {
     return -1;
+  }
+}
+
+// 打印页表 (For Lab 3)
+void
+vmprint(pagetable_t pagetable, uint depth)
+{
+  if(depth == 0) {
+    printf("page table %p\n", pagetable);
+  }
+  // 遍历页表中的所有页表项
+  for (int i = 0; i < 512; i++) {
+    pte_t pte = pagetable[i];
+    if ((pte & PTE_V) == 0) {
+      continue;
+    }
+    uint64 pa = PTE2PA(pte);
+    for(int j = 0; j < depth+1; j++) {
+      printf(" ..");
+    }
+    printf("%d: ", i);
+    // 如果当前页表项指向的是下一级页表，则递归打印下一级页表
+    if ((pte & (PTE_R | PTE_W | PTE_X)) == 0) {
+
+      printf("pte %p pa %p\n", pte, pa);
+      vmprint((pagetable_t)pa, depth + 1);
+    } else {
+      // 如果当前页表项指向的是物理页，则打印物理页的地址和权限
+      printf("pte %p pa %p\n", pte, pa);
+    }
   }
 }

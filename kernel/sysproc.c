@@ -75,6 +75,31 @@ int
 sys_pgaccess(void)
 {
   // lab pgtbl: your code here.
+  uint64 va;  // 待检测用户页面的起始虚拟地址
+  int nums; // 待检测用户页面的数量
+  uint64 maskaddr; // 用于记录检测结果的掩码的虚拟地址（来自用户空间）
+  argaddr(0, &va);
+  argint(1, &nums);
+  if(nums <= 0 || nums > 64) {  // 可扫描页面数量的上限
+    return -1;
+  }
+  argaddr(2, &maskaddr);
+
+  struct proc *p = myproc();
+  uint64 mask = 0;
+  // 遍历待检测的用户页面，调用 walk 函数获取对应的 PTE
+  for(int i = 0; i < nums; i++) {
+    pte_t *pte = walk(p->pagetable, va + i * PGSIZE, 0);
+    if(pte && (*pte & PTE_V) && (*pte & PTE_A)) {
+      // 如果 PTE 存在且有效且已访问过，则将掩码对应位置为 1
+      mask |= (1 << i);
+      *pte &= ~PTE_A; // 清除 PTE_A 位
+    } 
+  }
+  // 将掩码复制到用户空间
+  if(copyout(p->pagetable, maskaddr, (char *)&mask, sizeof(mask)) < 0) {
+    return -1;
+  }
   return 0;
 }
 #endif
