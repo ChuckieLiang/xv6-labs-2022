@@ -133,3 +133,50 @@ printfinit(void)
   initlock(&pr.lock, "pr");
   pr.locking = 1;
 }
+/*
+Stack
+                   .
+                   .
+      +->          .
+      |   +-----------------+   |
+      |   | return address  |   |
+      |   |   previous fp ------+
+      |   | saved registers |
+      |   | local variables |
+      |   |       ...       | <-+
+      |   +-----------------+   |
+      |   | return address  |   |
+      +------ previous fp   |   |
+          | saved registers |   |
+          | local variables |   |
+      +-> |       ...       |   |
+      |   +-----------------+   |
+      |   | return address  |   |
+      |   |   previous fp ------+
+      |   | saved registers |
+      |   | local variables |
+      |   |       ...       | <-+
+      |   +-----------------+   |
+      |   | return address  |   |
+      +------ previous fp   |   |
+          | saved registers |   |
+          | local variables |   |
+  $fp --> |       ...       |   |
+          +-----------------+   |
+          | return address  |   |
+          |   previous fp ------+
+          | saved registers |
+  $sp --> | local variables |
+          +-----------------+
+
+*/
+
+void
+backtrace(void){
+  uint64 fp = r_fp();
+  printf("backtrace:\n");
+  while(fp > PGROUNDDOWN(fp)){
+    printf("%p\n", *(uint64*)(fp - 8));
+    fp = *(uint64*)(fp - 16);
+  }
+}

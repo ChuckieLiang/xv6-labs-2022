@@ -53,7 +53,7 @@ sys_sleep(void)
 {
   int n;
   uint ticks0;
-
+  backtrace();
   argint(0, &n);
   if(n < 0)
     n = 0;
@@ -90,4 +90,29 @@ sys_uptime(void)
   xticks = ticks;
   release(&tickslock);
   return xticks;
+}
+
+uint64
+sys_sigalarm(void)
+{
+  int ticks;
+  uint64 handler;
+  argint(0, &ticks);
+  argaddr(1, &handler);
+  
+  struct proc *p = myproc();
+  p->alarm_interval = ticks;
+  p->alarm_handler = handler;
+  p->alarm_enabled = 1;
+  return 0;
+}
+
+uint64
+sys_sigreturn(void)
+{
+  struct proc *p = myproc();
+  p->alarm_enabled = 1;
+  *(p->trapframe) = *(p->trapframe_backup);
+  p->ticks = 0;
+  return p->trapframe->a0;  // 一个系统调用返回的时候，它会将其返回值存到 a0 寄存器中
 }

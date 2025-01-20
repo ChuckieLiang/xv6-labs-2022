@@ -146,6 +146,13 @@ found:
   p->context.ra = (uint64)forkret;
   p->context.sp = p->kstack + PGSIZE;
 
+  // For Lab4,  Alarm.
+  // trapframe结构体包含35个寄存器，占用288个字节，实际kalloc分配了4096字节
+  // 因此这里复用这块大空间，将trapframe_backup区的起始位置在trapframe的后面
+  p->trapframe_backup = p->trapframe + 512;
+  p->alarm_interval = 0;
+  p->alarm_handler = 0;
+  p->ticks = 0;
   return p;
 }
 
