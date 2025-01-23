@@ -1,0 +1,7 @@
+{
+    "marscode.chatLanguage": "cn",
+    "files.associations": {
+        "defs.h": "c",
+        "spinlock.h": "c"
+    }
+}

@@ -9,6 +9,14 @@
 #include "riscv.h"
 #include "defs.h"
 
+// 新增一个全局struct，用于表示物理页的引用计数 (lab5 COW)
+struct COW_struct {
+  struct spinlock lock;
+  int useRef[(PHYSTOP - KERNBASE) >> 12];
+};
+
+struct COW_struct cow_counting;
+
 void freerange(void *pa_start, void *pa_end);
 
 extern char end[]; // first address after kernel.
@@ -23,10 +31,43 @@ struct {
   struct run *freelist;
 } kmem;
 
+// COW结构的初始化函数
+void
+cowinit()
+{
+  initlock(&cow_counting.lock, "cowlock");
+  for (int i = 0; i < ((PHYSTOP - KERNBASE) >> 12); i++) {
+    cow_counting.useRef[i] = 1;
+  }
+}
+
+void
+cowinc(void *pa)
+{
+  acquire(&cow_counting.lock);
+  cow_counting.useRef[COWINDEX((uint64)pa)]++;
+  release(&cow_counting.lock);
+}
+
+void
+cowdec(void *pa)
+{
+  acquire(&cow_counting.lock);
+  cow_counting.useRef[COWINDEX((uint64)pa)]--;
+  release(&cow_counting.lock);
+}
+
+int
+cowgetref(void *pa)
+{
+  return cow_counting.useRef[COWINDEX((uint64)pa)];
+}
+
 void
 kinit()
 {
   initlock(&kmem.lock, "kmem");
+  cowinit();
   freerange(end, (void*)PHYSTOP);
 }
 
@@ -52,14 +93,17 @@ kfree(void *pa)
     panic("kfree");
 
   // Fill with junk to catch dangling refs.
-  memset(pa, 1, PGSIZE);
+  cowdec(pa);
+  if(cowgetref(pa) == 0){    
+    memset(pa, 1, PGSIZE);
 
-  r = (struct run*)pa;
+    r = (struct run*)pa;
 
-  acquire(&kmem.lock);
-  r->next = kmem.freelist;
-  kmem.freelist = r;
-  release(&kmem.lock);
+    acquire(&kmem.lock);
+    r->next = kmem.freelist;
+    kmem.freelist = r;
+    release(&kmem.lock);
+  }
 }
 
 // Allocate one 4096-byte page of physical memory.
@@ -72,8 +116,10 @@ kalloc(void)
 
   acquire(&kmem.lock);
   r = kmem.freelist;
-  if(r)
+  if(r){
     kmem.freelist = r->next;
+    cowinc((void*)r);
+  }
   release(&kmem.lock);
 
   if(r)

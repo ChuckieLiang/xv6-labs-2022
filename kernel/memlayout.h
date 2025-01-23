@@ -47,6 +47,9 @@
 #define KERNBASE 0x80000000L
 #define PHYSTOP (KERNBASE + 128*1024*1024)
 
+//  用于计算引用计数记录数组的索引
+#define COWINDEX(pa) ((pa - KERNBASE) >> 12)
+
 // map the trampoline page to the highest address,
 // in both user and kernel space.
 #define TRAMPOLINE (MAXVA - PGSIZE)
@@ -65,3 +68,9 @@
 //   TRAPFRAME (p->trapframe, used by the trampoline)
 //   TRAMPOLINE (the same page as in the kernel)
 #define TRAPFRAME (TRAMPOLINE - PGSIZE)
+
+#ifndef MYSTRUCT_H
+#define MYSTRUCT_H
+
+
+#endif // MYSTRUCT_H
