@@ -113,6 +113,7 @@ bwrite(struct buf *b)
 
 // Release a locked buffer.
 // Move to the head of the most-recently-used list.
+// 释放一个已加锁的缓冲区，并更新其引用计数和链表位置。如果引用计数为 0，将缓冲区移动到最近使用的链表头部，以便后续使用。
 void
 brelse(struct buf *b)
 {
@@ -136,6 +137,8 @@ brelse(struct buf *b)
   release(&bcache.lock);
 }
 
+// 增加缓冲区（struct buf）的引用计数
+// 标记该缓冲区正在被使用，防止其被回收
 void
 bpin(struct buf *b) {
   acquire(&bcache.lock);
@@ -143,6 +146,7 @@ bpin(struct buf *b) {
   release(&bcache.lock);
 }
 
+// 减少缓冲区（struct buf）的引用计数
 void
 bunpin(struct buf *b) {
   acquire(&bcache.lock);

@@ -126,45 +126,45 @@ sys_link(void)
   char name[DIRSIZ], new[MAXPATH], old[MAXPATH];
   struct inode *dp, *ip;
 
-  if(argstr(0, old, MAXPATH) < 0 || argstr(1, new, MAXPATH) < 0)
+  if(argstr(0, old, MAXPATH) < 0 || argstr(1, new, MAXPATH) < 0)  // 获取旧路径和新路径
     return -1;
 
-  begin_op();
-  if((ip = namei(old)) == 0){
+  begin_op(); // 开始操作
+  if((ip = namei(old)) == 0){ // 查找旧路径对应的inode
     end_op();
     return -1;
   }
 
-  ilock(ip);
-  if(ip->type == T_DIR){
+  ilock(ip);  // 锁定inode
+  if(ip->type == T_DIR){ // 检查是否为目录，如果是目录则返回错误
     iunlockput(ip);
     end_op();
     return -1;
   }
 
-  ip->nlink++;
-  iupdate(ip);
-  iunlock(ip);
+  ip->nlink++;  // 增加inode的链接数
+  iupdate(ip);  // 更新inode
+  iunlock(ip);  // 解锁inode
 
-  if((dp = nameiparent(new, name)) == 0)
+  if((dp = nameiparent(new, name)) == 0)  // 查找新路径的父目录
     goto bad;
-  ilock(dp);
-  if(dp->dev != ip->dev || dirlink(dp, name, ip->inum) < 0){
+  ilock(dp);  // 锁定父目录inode
+  if(dp->dev != ip->dev || dirlink(dp, name, ip->inum) < 0){ // 在父目录中创建新的目录项
     iunlockput(dp);
     goto bad;
   }
   iunlockput(dp);
-  iput(ip);
+  iput(ip);   // 减少inode的引用计数
 
   end_op();
 
   return 0;
 
 bad:
-  ilock(ip);
-  ip->nlink--;
-  iupdate(ip);
-  iunlockput(ip);
+  ilock(ip);  // 锁定inode
+  ip->nlink--;  // 减少inode的链接数
+  iupdate(ip);  // 更新inode
+  iunlockput(ip);  // 解锁inode
   end_op();
   return -1;
 }
@@ -245,24 +245,24 @@ bad:
 static struct inode*
 create(char *path, short type, short major, short minor)
 {
-  struct inode *ip, *dp;
+  struct inode *ip, *dp;  //ip 用于指向新创建的 inode，dp 用于指向父目录的 inode
   char name[DIRSIZ];
 
-  if((dp = nameiparent(path, name)) == 0)
+  if((dp = nameiparent(path, name)) == 0)  // 查找父目录
     return 0;
 
   ilock(dp);
 
-  if((ip = dirlookup(dp, name, 0)) != 0){
+  if((ip = dirlookup(dp, name, 0)) != 0){  // 在父目录中查找指定名称的文件或目录
     iunlockput(dp);
     ilock(ip);
-    if(type == T_FILE && (ip->type == T_FILE || ip->type == T_DEVICE))
+    if(type == T_FILE && (ip->type == T_FILE || ip->type == T_DEVICE))  // 如果指定的文件或目录已经存在，并且类型为文件或设备，则返回该inode
       return ip;
     iunlockput(ip);
     return 0;
   }
 
-  if((ip = ialloc(dp->dev, type)) == 0){
+  if((ip = ialloc(dp->dev, type)) == 0){  // 分配一个新的inode
     iunlockput(dp);
     return 0;
   }
@@ -279,10 +279,10 @@ create(char *path, short type, short major, short minor)
       goto fail;
   }
 
-  if(dirlink(dp, name, ip->inum) < 0)
+  if(dirlink(dp, name, ip->inum) < 0)  // 在父目录中创建一个新的目录项
     goto fail;
 
-  if(type == T_DIR){
+  if(type == T_DIR){  // 若类型为目录，则增加父目录的链接数
     // now that success is guaranteed:
     dp->nlink++;  // for ".."
     iupdate(dp);
@@ -294,8 +294,8 @@ create(char *path, short type, short major, short minor)
 
  fail:
   // something went wrong. de-allocate ip.
-  ip->nlink = 0;
-  iupdate(ip);
+  ip->nlink = 0;  // 减少inode的链接数
+  iupdate(ip);  // 更新inode
   iunlockput(ip);
   iunlockput(dp);
   return 0;
@@ -310,38 +310,59 @@ sys_open(void)
   struct inode *ip;
   int n;
 
-  argint(1, &omode);
-  if((n = argstr(0, path, MAXPATH)) < 0)
+  argint(1, &omode);  //  从系统调用参数中获取第二个参数作为打开模式，并存储在 omode 中
+  if((n = argstr(0, path, MAXPATH)) < 0)  // 从系统调用参数中获取第一个参数作为路径，并存储在 path 中
     return -1;
 
   begin_op();
 
-  if(omode & O_CREATE){
-    ip = create(path, T_FILE, 0, 0);
+  if(omode & O_CREATE){  // 如果打开模式包含 O_CREATE，则创建一个新的文件
+    ip = create(path, T_FILE, 0, 0);  // 创建一个新的文件
     if(ip == 0){
       end_op();
       return -1;
     }
-  } else {
-    if((ip = namei(path)) == 0){
+  } else {  // 否则，打开已存在的文件
+    if((ip = namei(path)) == 0){  // 查找路径对应的inode
       end_op();
       return -1;
     }
     ilock(ip);
-    if(ip->type == T_DIR && omode != O_RDONLY){
+    if(ip->type == T_DIR && omode != O_RDONLY){  // 如果打开模式不是 O_RDONLY，则返回错误
       iunlockput(ip);
       end_op();
       return -1;
     }
   }
 
-  if(ip->type == T_DEVICE && (ip->major < 0 || ip->major >= NDEV)){
+  if(ip->type == T_DEVICE && (ip->major < 0 || ip->major >= NDEV)){  // 如果设备号无效，则返回错误
     iunlockput(ip);
     end_op();
     return -1;
   }
 
-  if((f = filealloc()) == 0 || (fd = fdalloc(f)) < 0){
+  if(ip->type == T_SYMLINK){
+    int level = 0;
+    char name[MAXPATH];
+    if(!(omode & O_NOFOLLOW)){
+      for(; level < 10 && ip->type == T_SYMLINK; level++){
+        memset(name, 0, sizeof(name));
+        readi(ip, 0, (uint64)name, 0, MAXPATH);
+        iunlockput(ip);
+        if((ip = namei(name)) == 0){  // 查找符号链接指向的inode
+          end_op();
+          return -1;
+        }
+        ilock(ip);
+      }
+    }
+    if(level >= 10){
+      iunlockput(ip);
+      end_op();
+      return -1;
+    }
+  }
+  if((f = filealloc()) == 0 || (fd = fdalloc(f)) < 0){  // 分配一个新的文件结构，并将其与对应的inode关联
     if(f)
       fileclose(f);
     iunlockput(ip);
@@ -349,10 +370,10 @@ sys_open(void)
     return -1;
   }
 
-  if(ip->type == T_DEVICE){
+  if(ip->type == T_DEVICE){  // 如果是设备文件，则设置文件类型为 FD_DEVICE，并将设备号存储在文件结构中
     f->type = FD_DEVICE;
     f->major = ip->major;
-  } else {
+  } else {  // 否则，设置文件类型为 FD_INODE，并将文件偏移量设置为0
     f->type = FD_INODE;
     f->off = 0;
   }
@@ -360,7 +381,7 @@ sys_open(void)
   f->readable = !(omode & O_WRONLY);
   f->writable = (omode & O_WRONLY) || (omode & O_RDWR);
 
-  if((omode & O_TRUNC) && ip->type == T_FILE){
+  if((omode & O_TRUNC) && ip->type == T_FILE){  // 如果打开模式包含 O_TRUNC，则截断文件
     itrunc(ip);
   }
 
@@ -482,11 +503,11 @@ sys_pipe(void)
   int fd0, fd1;
   struct proc *p = myproc();
 
-  argaddr(0, &fdarray);
-  if(pipealloc(&rf, &wf) < 0)
+  argaddr(0, &fdarray); // 从系统调用的参数中获取第一个参数，即用户空间数组的指针，并将其存储在 fdarray 中。
+  if(pipealloc(&rf, &wf) < 0)  // 调用 pipealloc 函数创建一个管道，并将读端文件描述符存储在 rf 中，将写端文件描述符存储在 wf 中。
     return -1;
   fd0 = -1;
-  if((fd0 = fdalloc(rf)) < 0 || (fd1 = fdalloc(wf)) < 0){
+  if((fd0 = fdalloc(rf)) < 0 || (fd1 = fdalloc(wf)) < 0){  // 分配两个文件描述符 fd0 和 fd1，并将它们分别与读端文件描述符 rf 和写端文件描述符 wf 关联。
     if(fd0 >= 0)
       p->ofile[fd0] = 0;
     fileclose(rf);
@@ -494,12 +515,37 @@ sys_pipe(void)
     return -1;
   }
   if(copyout(p->pagetable, fdarray, (char*)&fd0, sizeof(fd0)) < 0 ||
-     copyout(p->pagetable, fdarray+sizeof(fd0), (char *)&fd1, sizeof(fd1)) < 0){
+     copyout(p->pagetable, fdarray+sizeof(fd0), (char *)&fd1, sizeof(fd1)) < 0){  // 将两个文件描述符 fd0 和 fd1 分别写入用户空间数组中。
     p->ofile[fd0] = 0;
     p->ofile[fd1] = 0;
     fileclose(rf);
     fileclose(wf);
     return -1;
   }
+  return 0;
+}
+
+uint64
+sys_symlink(void)
+{
+  char target[MAXPATH], path[MAXPATH];
+  struct inode *ip;
+  if(argstr(0, target, MAXPATH) < 0 || argstr(1, path, MAXPATH) < 0){
+    return -1;
+  }
+
+  begin_op();
+  if((ip = create(path, T_SYMLINK, 0, 0)) == 0){
+    end_op();
+    return -1;
+  }
+
+  if(writei(ip, 0, (uint64)target, 0, strlen(target)) < 0){
+    iunlockput(ip);
+    end_op();
+    return -1;
+  }
+  iunlockput(ip);
+  end_op();
   return 0;
 }

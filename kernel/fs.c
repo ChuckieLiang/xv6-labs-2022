@@ -71,14 +71,14 @@ balloc(uint dev)
   bp = 0;
   for(b = 0; b < sb.size; b += BPB){
     bp = bread(dev, BBLOCK(b, sb));
-    for(bi = 0; bi < BPB && b + bi < sb.size; bi++){
+    for(bi = 0; bi < BPB && b + bi < sb.size; bi++){ // 遍历块位图中的每个位
       m = 1 << (bi % 8);
       if((bp->data[bi/8] & m) == 0){  // Is block free?
         bp->data[bi/8] |= m;  // Mark block in use.
-        log_write(bp);
-        brelse(bp);
-        bzero(dev, b + bi);
-        return b + bi;
+        log_write(bp);  // 调用 log_write 函数将修改后的 bp 写入日志。
+        brelse(bp);  // 调用 brelse 函数释放 bp 所指向的缓冲区。
+        bzero(dev, b + bi); // 调用 bzero 函数将分配的块清零。
+        return b + bi;  // 返回分配的块的编号（b + bi）。
       }
     }
     brelse(bp);
@@ -91,16 +91,17 @@ balloc(uint dev)
 static void
 bfree(int dev, uint b)
 {
+  // 释放指定设备 dev 上的块 b
   struct buf *bp;
   int bi, m;
 
-  bp = bread(dev, BBLOCK(b, sb));
-  bi = b % BPB;
-  m = 1 << (bi % 8);
-  if((bp->data[bi/8] & m) == 0)
-    panic("freeing free block");
-  bp->data[bi/8] &= ~m;
-  log_write(bp);
+  bp = bread(dev, BBLOCK(b, sb)); // 调用 bread 函数从指定设备 dev 读取包含要释放块的位图块，并将结果存储在 bp 中。
+  bi = b % BPB; // 计算要释放块在位图块中的偏移量 bi。
+  m = 1 << (bi % 8); // 计算要释放块在位图中的位偏移量 m。
+  if((bp->data[bi/8] & m) == 0) // 检查要释放的块是否已经被标记为已分配。
+    panic("freeing free block"); // 如果要释放的块已经被标记为已分配，则调用 panic 函数。
+  bp->data[bi/8] &= ~m; // 清除位 m 对应的位。
+  log_write(bp); // 调用 log_write 函数将修改后的 bp 写入日志。
   brelse(bp);
 }
 
@@ -195,6 +196,7 @@ static struct inode* iget(uint dev, uint inum);
 // Mark it as allocated by  giving it type type.
 // Returns an unlocked but allocated and referenced inode,
 // or NULL if there is no free inode.
+// 在指定设备上分配一个新的inode
 struct inode*
 ialloc(uint dev, short type)
 {
@@ -202,7 +204,7 @@ ialloc(uint dev, short type)
   struct buf *bp;
   struct dinode *dip;
 
-  for(inum = 1; inum < sb.ninodes; inum++){
+  for(inum = 1; inum < sb.ninodes; inum++){ // 循环遍历所有可能的inode编号
     bp = bread(dev, IBLOCK(inum, sb));
     dip = (struct dinode*)bp->data + inum%IPB;
     if(dip->type == 0){  // a free inode
@@ -222,21 +224,22 @@ ialloc(uint dev, short type)
 // Must be called after every change to an ip->xxx field
 // that lives on disk.
 // Caller must hold ip->lock.
+// 将内存中修改过的inode信息同步到磁盘上对应的inode中
 void
 iupdate(struct inode *ip)
 {
   struct buf *bp;
   struct dinode *dip;
 
-  bp = bread(ip->dev, IBLOCK(ip->inum, sb));
+  bp = bread(ip->dev, IBLOCK(ip->inum, sb));  // IBLOCK(ip->inum, sb) 用于计算目标inode所在的磁盘块编号
   dip = (struct dinode*)bp->data + ip->inum%IPB;
   dip->type = ip->type;
   dip->major = ip->major;
   dip->minor = ip->minor;
   dip->nlink = ip->nlink;
   dip->size = ip->size;
-  memmove(dip->addrs, ip->addrs, sizeof(ip->addrs));
-  log_write(bp);
+  memmove(dip->addrs, ip->addrs, sizeof(ip->addrs));  // 将ip->addrs数组中的内容复制到dip->addrs数组中
+  log_write(bp);  // 调用 log_write 函数将修改后的 bp 写入日志。
   brelse(bp);
 }
 
@@ -253,17 +256,17 @@ iget(uint dev, uint inum)
   // Is the inode already in the table?
   empty = 0;
   for(ip = &itable.inode[0]; ip < &itable.inode[NINODE]; ip++){
-    if(ip->ref > 0 && ip->dev == dev && ip->inum == inum){
+    if(ip->ref > 0 && ip->dev == dev && ip->inum == inum){  // 找到了目标inode
       ip->ref++;
       release(&itable.lock);
-      return ip;
+      return ip;  // 返回找到的inode
     }
     if(empty == 0 && ip->ref == 0)    // Remember empty slot.
       empty = ip;
   }
 
   // Recycle an inode entry.
-  if(empty == 0)
+  if(empty == 0)  // 没有空闲项
     panic("iget: no inodes");
 
   ip = empty;
@@ -379,63 +382,94 @@ iunlockput(struct inode *ip)
 // Return the disk block address of the nth block in inode ip.
 // If there is no such block, bmap allocates one.
 // returns 0 if out of disk space.
+// 其作用是返回inode中第 bn 个块对应的磁盘块地址。如果该块尚未分配，函数会尝试分配一个新的磁盘块。
 static uint
 bmap(struct inode *ip, uint bn)
 {
   uint addr, *a;
   struct buf *bp;
 
+  // 处理直接块
   if(bn < NDIRECT){
+    // 检查该直接块是否已分配
     if((addr = ip->addrs[bn]) == 0){
+      // 若未分配，则分配一个新的磁盘块
       addr = balloc(ip->dev);
       if(addr == 0)
-        return 0;
-      ip->addrs[bn] = addr;
+        return 0; // 分配失败，返回0
+      ip->addrs[bn] = addr; // 更新inode的直接块地址数组
     }
-    return addr;
+    return addr; // 返回分配好的磁盘块地址
   }
-  bn -= NDIRECT;
+  bn -= NDIRECT;  // 减去直接块的数量，处理间接块
 
-  if(bn < NINDIRECT){
-    // Load indirect block, allocating if necessary.
-    if((addr = ip->addrs[NDIRECT]) == 0){
+  // 处理间接块
+  if(bn < NINDIRECT){ // 检查间接块是否已分配
+    if((addr = ip->addrs[NDIRECT]) == 0){ // 若未分配，则分配一个新的磁盘块作为间接块
       addr = balloc(ip->dev);
       if(addr == 0)
-        return 0;
-      ip->addrs[NDIRECT] = addr;
+        return 0; // 分配失败，返回0
+      ip->addrs[NDIRECT] = addr; // 更新inode的间接块地址
     }
-    bp = bread(ip->dev, addr);
+    bp = bread(ip->dev, addr);  // 读取间接块
     a = (uint*)bp->data;
-    if((addr = a[bn]) == 0){
+    if((addr = a[bn]) == 0){  // 检查间接块中的指定块是否已分配
+      addr = balloc(ip->dev); // 若未分配，则分配一个新的磁盘块
+      if(addr){
+        a[bn] = addr; // 更新间接块中的地址
+        log_write(bp); // 将修改写入日志
+      }
+    }
+    brelse(bp); // 释放缓冲区
+    return addr; // 返回分配好的磁盘块地址
+  }
+  bn -= NINDIRECT;  // 减去间接块的数量，处理双间接块
+  // 处理双间接块
+  if(bn < NDINDIRECT){
+    if((addr = ip->addrs[NDIRECT+1]) == 0){ // 若未分配，则分配一个新的磁盘块作为双间接块
+      ip->addrs[NDIRECT+1] = addr = balloc(ip->dev);
+      if(addr == 0)
+        return 0;
+    }
+    bp = bread(ip->dev, addr); // 读取双间接块
+    a = (uint*)bp->data;  // 指向双间接块的数据
+    if((addr = a[bn/NINDIRECT]) == 0){  //bn / NINDIRECT 计算是第几个单间接块
+      a[bn/NINDIRECT] = addr = balloc(ip->dev);
+      log_write(bp);  // 将修改写入日志
+    }
+    brelse(bp);
+    bp = bread(ip->dev, addr); // 读取单间接块
+    a = (uint*)bp->data;  // 指向单间接块的数据
+    if((addr = a[bn%NINDIRECT]) == 0){  // bn % NINDIRECT 计算是第几个直接块
       addr = balloc(ip->dev);
       if(addr){
-        a[bn] = addr;
+        a[bn%NINDIRECT] = addr;
         log_write(bp);
       }
     }
     brelse(bp);
     return addr;
   }
-
-  panic("bmap: out of range");
+  panic("bmap: out of range");  // 超出范围，触发panic
 }
 
 // Truncate inode (discard contents).
 // Caller must hold ip->lock.
+// 截断（清空）一个inode所关联的数据块，也就是释放该inode占用的所有磁盘块
 void
 itrunc(struct inode *ip)
 {
   int i, j;
   struct buf *bp;
   uint *a;
-
+  // 释放直接块
   for(i = 0; i < NDIRECT; i++){
-    if(ip->addrs[i]){
+    if(ip->addrs[i]){  // 如果其地址不为 0，说明该块已分配，调用 bfree 函数释放该磁盘块
       bfree(ip->dev, ip->addrs[i]);
       ip->addrs[i] = 0;
     }
   }
-
+  // 释放间接块
   if(ip->addrs[NDIRECT]){
     bp = bread(ip->dev, ip->addrs[NDIRECT]);
     a = (uint*)bp->data;
@@ -447,7 +481,26 @@ itrunc(struct inode *ip)
     bfree(ip->dev, ip->addrs[NDIRECT]);
     ip->addrs[NDIRECT] = 0;
   }
-
+  // 释放双间接块
+  if(ip->addrs[NDIRECT+1]){
+    bp = bread(ip->dev, ip->addrs[NDIRECT+1]);
+    a = (uint*)bp->data;
+    for(j = 0; j < NINDIRECT; j++){
+      if(a[j]){
+        struct buf *bpp = bread(ip->dev, a[j]);
+        uint *aa = (uint*)bpp->data;
+        for(i = 0; i < NINDIRECT; i++){
+          if(aa[i])
+            bfree(ip->dev, aa[i]);
+        }
+        brelse(bpp);
+        bfree(ip->dev, a[j]);
+      }
+    }
+    brelse(bp);
+    bfree(ip->dev, ip->addrs[NDIRECT+1]);
+    ip->addrs[NDIRECT+1] = 0;
+  }
   ip->size = 0;
   iupdate(ip);
 }
@@ -480,12 +533,12 @@ readi(struct inode *ip, int user_dst, uint64 dst, uint off, uint n)
     n = ip->size - off;
 
   for(tot=0; tot<n; tot+=m, off+=m, dst+=m){
-    uint addr = bmap(ip, off/BSIZE);
+    uint addr = bmap(ip, off/BSIZE);  // 调用 bmap 函数获取偏移量 off 所在的磁盘块地址
     if(addr == 0)
       break;
-    bp = bread(ip->dev, addr);
-    m = min(n - tot, BSIZE - off%BSIZE);
-    if(either_copyout(user_dst, dst, bp->data + (off % BSIZE), m) == -1) {
+    bp = bread(ip->dev, addr);  // 调用 bread 函数从磁盘读取该块数据到缓冲区 bp 中
+    m = min(n - tot, BSIZE - off%BSIZE);  // 确保不会读取超出块边界的数据
+    if(either_copyout(user_dst, dst, bp->data + (off % BSIZE), m) == -1) {  // 缓冲区中的数据复制到目标地址 dst 中
       brelse(bp);
       tot = -1;
       break;
@@ -599,6 +652,7 @@ dirlink(struct inode *dp, char *name, uint inum)
 
   strncpy(de.name, name, DIRSIZ);
   de.inum = inum;
+  // 调用 writei 函数将新的目录项 de 写入到目录 dp 中偏移量为 off 的位置。
   if(writei(dp, 0, (uint64)&de, off, sizeof(de)) != sizeof(de))
     return -1;
 
@@ -683,6 +737,7 @@ namex(char *path, int nameiparent, char *name)
   return ip;
 }
 
+// 根据给定的路径字符串 path 查找并返回对应的inode结构体指针
 struct inode*
 namei(char *path)
 {
@@ -690,6 +745,7 @@ namei(char *path)
   return namex(path, 0, name);
 }
 
+// 根据给定的路径字符串 path 查找并返回路径中最后一个路径元素的父目录对应的 inode 结构体指针，同时将最后一个路径元素的名称存储在 name 数组中
 struct inode*
 nameiparent(char *path, char *name)
 {

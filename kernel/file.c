@@ -131,17 +131,22 @@ fileread(struct file *f, uint64 addr, int n)
 
 // Write to file f.
 // addr is a user virtual address.
+// 其主要功能是向文件描述符对应的文件中写入数据
 int
 filewrite(struct file *f, uint64 addr, int n)
 {
+  // struct file *f：指向要写入的文件结构体的指针。
+  // uint64 addr：指向要写入的数据的用户虚拟地址。
+  // int n：要写入的数据的字节数。
+  // 返回值：成功写入的字节数，如果发生错误则返回 -1。
   int r, ret = 0;
 
   if(f->writable == 0)
     return -1;
 
-  if(f->type == FD_PIPE){
+  if(f->type == FD_PIPE){ // 管道
     ret = pipewrite(f->pipe, addr, n);
-  } else if(f->type == FD_DEVICE){
+  } else if(f->type == FD_DEVICE){  // 设备
     if(f->major < 0 || f->major >= NDEV || !devsw[f->major].write)
       return -1;
     ret = devsw[f->major].write(1, addr, n);

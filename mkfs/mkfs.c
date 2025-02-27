@@ -231,6 +231,8 @@ ialloc(ushort type)
   return inum;
 }
 
+// 为文件系统分配块，并更新位图（bitmap）以标记哪些块已经被使用
+// 接受一个整数参数 used，表示已经被使用的块的数量。
 void
 balloc(int used)
 {
@@ -240,11 +242,11 @@ balloc(int used)
   printf("balloc: first %d blocks have been allocated\n", used);
   assert(used < BSIZE*8);
   bzero(buf, BSIZE);
-  for(i = 0; i < used; i++){
+  for(i = 0; i < used; i++){  // 更新位图以标记已使用的块
     buf[i/8] = buf[i/8] | (0x1 << (i%8));
   }
   printf("balloc: write bitmap block at sector %d\n", sb.bmapstart);
-  wsect(sb.bmapstart, buf);
+  wsect(sb.bmapstart, buf); // 将位图信息写入文件系统的指定扇区
 }
 
 #define min(a, b) ((a) < (b) ? (a) : (b))
