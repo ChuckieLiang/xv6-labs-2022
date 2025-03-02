@@ -146,6 +146,10 @@ found:
   p->context.ra = (uint64)forkret;
   p->context.sp = p->kstack + PGSIZE;
 
+  // 初始化进程的 vma_pool
+  for(int i = 0; i < MAX_VMA_POOL; i++) {
+    p->vma_pool[i].valid = 0;
+  }
   return p;
 }
 
@@ -158,6 +162,10 @@ freeproc(struct proc *p)
   if(p->trapframe)
     kfree((void*)p->trapframe);
   p->trapframe = 0;
+  for(int i = 0; i < MAX_VMA_POOL; i++) {
+    struct VMA *v = &p->vma_pool[i];
+    vmaunmap(p->pagetable, v->addr, v->length, v);
+  }
   if(p->pagetable)
     proc_freepagetable(p->pagetable, p->sz);
   p->pagetable = 0;
@@ -307,6 +315,18 @@ fork(void)
     if(p->ofile[i])
       np->ofile[i] = filedup(p->ofile[i]);
   np->cwd = idup(p->cwd);
+
+  // 子进程需要继承父进程的虚拟内存区域信息。
+  // 这段代码遍历父进程的 VMA 池，将有效的
+  // VMA 信息复制到子进程的 VMA 池中，并对
+  // 每个有效的 VMA 所关联的文件描述符增加引用计数。
+  for(i = 0; i < MAX_VMA_POOL; i++) {
+    struct VMA *v = &p->vma_pool[i];
+    if(v->valid) {
+      np->vma_pool[i] = *v;
+      filedup(v->f);
+    }
+  }
 
   safestrcpy(np->name, p->name, sizeof(p->name));
 

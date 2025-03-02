@@ -5,7 +5,11 @@
 #include "riscv.h"
 #include "defs.h"
 #include "fs.h"
-
+#include "spinlock.h"
+#include "sleeplock.h"
+#include "proc.h"
+#include "file.h"
+#include "fcntl.h"
 /*
  * the kernel's page table.
  */
@@ -167,6 +171,8 @@ mappages(pagetable_t pagetable, uint64 va, uint64 size, uint64 pa, int perm)
 // Remove npages of mappings starting from va. va must be
 // page-aligned. The mappings must exist.
 // Optionally free the physical memory.
+// 解除用户虚拟地址空间中一段连续页面的映射关系，
+// 并且可以选择是否释放这些页面所对应的物理内存。
 void
 uvmunmap(pagetable_t pagetable, uint64 va, uint64 npages, int do_free)
 {
@@ -176,16 +182,16 @@ uvmunmap(pagetable_t pagetable, uint64 va, uint64 npages, int do_free)
   if((va % PGSIZE) != 0)
     panic("uvmunmap: not aligned");
 
-  for(a = va; a < va + npages*PGSIZE; a += PGSIZE){
-    if((pte = walk(pagetable, a, 0)) == 0)
+  for(a = va; a < va + npages*PGSIZE; a += PGSIZE){ // 遍历用户虚拟地址空间中所有需要解除映射的页面
+    if((pte = walk(pagetable, a, 0)) == 0)  // 调用 walk 函数查找虚拟地址 a 对应的页表项 pte
       panic("uvmunmap: walk");
-    if((*pte & PTE_V) == 0)
+    if((*pte & PTE_V) == 0) // 如果该页表项没有被映射，则表示该页面没有被使用，直接跳过
       panic("uvmunmap: not mapped");
-    if(PTE_FLAGS(*pte) == PTE_V)
+    if(PTE_FLAGS(*pte) == PTE_V)  // 如果该页表项的权限为 PTE_V，则表示该页面是一个叶子节点，直接释放该页面所对应的物理内存
       panic("uvmunmap: not a leaf");
-    if(do_free){
-      uint64 pa = PTE2PA(*pte);
-      kfree((void*)pa);
+    if(do_free){  // 如果需要释放物理内存
+      uint64 pa = PTE2PA(*pte);  // 获取该页表项对应的物理地址
+      kfree((void*)pa);  // 释放该物理地址对应的内存
     }
     *pte = 0;
   }
@@ -435,5 +441,39 @@ copyinstr(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max)
     return 0;
   } else {
     return -1;
+  }
+}
+
+
+void
+vmaunmap(pagetable_t pagetable, uint64 va, uint64 nbytes, struct VMA *v)
+{
+  uint64 a;
+  pte_t *pte;
+
+  for(a = va; a < va + nbytes; a += PGSIZE){
+    if((pte = walk(pagetable, a, 0)) == 0)
+      continue;
+    if(PTE_FLAGS(*pte) == PTE_V)
+      panic("sys_munmap: not a leaf");
+    if(*pte & PTE_V){
+      uint64 pa = PTE2PA(*pte); // 从页表项中提取物理地址 pa
+      if((*pte & PTE_D) && (v->flags == 1)) {
+        begin_op();
+        ilock(v->f->ip);
+        uint64 aoff = a - v->addr;   // offset relative to the start of memory range
+        if(aoff < 0) {  // if the first page is not a full 4k page
+          writei(v->f->ip, 0, pa + (-aoff), v->offset, PGSIZE + aoff);
+        } else if(aoff + PGSIZE > v->length){  // if the last page is not a full 4k page
+          writei(v->f->ip, 0, pa, v->offset + aoff, v->length - aoff);
+        } else { // full 4k pages
+          writei(v->f->ip, 0, pa, v->offset + aoff, PGSIZE);
+        }
+        iunlock(v->f->ip);
+        end_op();
+      }
+      kfree((void*)pa);
+      *pte = 0;
+    }
   }
 }

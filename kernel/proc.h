@@ -1,3 +1,16 @@
+#define MAX_VMA_POOL 16
+
+struct VMA {
+  int valid;
+  uint64 addr;
+  uint64 length;
+  uint64 left; // vma中剩余的还没被释放的bytes数量
+  int prot;
+  int flags;
+  int offset;
+  struct file *f;
+};
+
 // Saved registers for kernel context switches.
 struct context {
   uint64 ra;
@@ -104,4 +117,6 @@ struct proc {
   struct file *ofile[NOFILE];  // Open files
   struct inode *cwd;           // Current directory
   char name[16];               // Process name (debugging)
+
+  struct VMA vma_pool[MAX_VMA_POOL];
 };

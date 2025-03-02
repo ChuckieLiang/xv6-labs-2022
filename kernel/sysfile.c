@@ -15,6 +15,7 @@
 #include "sleeplock.h"
 #include "file.h"
 #include "fcntl.h"
+#include "memlayout.h"
 
 // Fetch the nth word-sized system call argument as a file descriptor
 // and return both the descriptor and the corresponding struct file.
@@ -502,4 +503,170 @@ sys_pipe(void)
     return -1;
   }
   return 0;
+}
+
+uint64
+sys_mmap(void)
+{
+  uint64 addr, sz, offset;
+  int prot, flags, fd; struct file *f;
+
+  argaddr(0, &addr);
+  argaddr(1, &sz);
+  argint(2, &prot);
+  argint(3, &flags);
+  if(argfd(4, &fd, &f) < 0 || sz == 0)
+    return -1;
+  argaddr(5, &offset);
+  
+  if((!f->readable && (prot & (PROT_READ)))
+     || (!f->writable && (prot & PROT_WRITE) && !(flags & MAP_PRIVATE)))
+    return -1;
+  
+  sz = PGROUNDUP(sz);
+
+  struct proc *p = myproc();
+  struct VMA *v = 0;
+  uint64 vaend = MMAPEND; // non-inclusive
+  
+  // mmaptest never passed a non-zero addr argument.
+  // so addr here is ignored and a new unmapped va region is found to
+  // map the file
+  // our implementation maps file right below where the trapframe is,
+  // from high addresses to low addresses.
+
+  // Find a free vma, and calculate where to map the file along the way.
+  for(int i=0;i<MAX_VMA_POOL;i++) {
+    struct VMA *vv = &p->vma_pool[i];
+    if(vv->valid == 0) {
+      if(v == 0) {
+        v = &p->vma_pool[i];
+        // found free vma;
+        v->valid = 1;
+      }
+    } else if(vv->addr < vaend) {
+      vaend = PGROUNDDOWN(vv->addr);
+    }
+  }
+
+  if(v == 0){
+    panic("mmap: no free vma");
+  }
+  
+  v->addr = vaend - sz;
+  v->length = sz;
+  v->prot = prot;
+  v->flags = flags;
+  v->f = f; // assume f->type == FD_INODE
+  v->offset = offset;
+
+  filedup(v->f);
+
+  return v->addr;
+}
+
+// find a vma using a virtual address inside that vma.
+struct VMA *findvma(struct proc *p, uint64 va) {
+  for(int i = 0; i < MAX_VMA_POOL; i++) {
+    struct VMA *vv = &p->vma_pool[i];
+    if(vv->valid == 1 && va >= vv->addr && va < vv->addr + vv->length) {
+      return vv;
+    }
+  }
+  return 0;
+}
+
+// finds out whether a page is previously lazy-allocated for a vma
+// and needed to be touched before use.
+// if so, touch it so it's mapped to an actual physical page and contains
+// content of the mapped file.
+// 该函数的主要目的是尝试对虚拟内存区域（VMA）进行懒加载（lazy loading），
+// 即当访问一个虚拟地址时，如果该地址对应的物理页面还未分配，就分配物理页面并从
+// 磁盘读取数据到该页面，然后将虚拟地址映射到这个物理页面。
+int vmatrylazytouch(uint64 va) {
+  struct proc *p = myproc();
+  struct VMA *v = findvma(p, va);
+  if(v == 0) {
+    return 0;
+  }
+
+  // printf("vma mapping: %p => %d\n", va, v->offset + PGROUNDDOWN(va - v->vastart));
+
+  // allocate physical page
+  void *pa = kalloc();
+  if(pa == 0) {
+    panic("vmalazytouch: kalloc");
+  }
+  memset(pa, 0, PGSIZE);
+  
+  // read data from disk
+  begin_op();
+  ilock(v->f->ip);
+  readi(v->f->ip, 0, (uint64)pa, v->offset + PGROUNDDOWN(va - v->addr), PGSIZE);
+  iunlock(v->f->ip);
+  end_op();
+
+  // set appropriate perms, then map it.
+  int perm = PTE_U;
+  if(v->prot & PROT_READ)
+    perm |= PTE_R;
+  if(v->prot & PROT_WRITE)
+    perm |= PTE_W;
+  if(v->prot & PROT_EXEC)
+    perm |= PTE_X;
+
+  if(mappages(p->pagetable, va, PGSIZE, (uint64)pa, PTE_R | PTE_W | PTE_U) < 0) {
+    panic("vmalazytouch: mappages");
+  }
+
+  return 1;
+}
+
+// kernel/sysfile.c
+
+uint64
+sys_munmap(void)
+{
+  uint64 addr, sz;
+
+  argaddr(0, &addr);
+  argaddr(1, &sz);
+  if(sz == 0)
+    return -1;
+
+  struct proc *p = myproc();
+
+  struct VMA *v = findvma(p, addr);
+  if(v == 0) {
+    return -1;
+  }
+
+  if(addr > v->addr && addr + sz < v->addr + v->length) {
+    // trying to "dig a hole" inside the memory range.
+    return -1;
+  }
+
+  uint64 addr_aligned = addr;
+  if(addr > v->addr) {
+    addr_aligned = PGROUNDUP(addr);
+  }
+
+  int nunmap = sz - (addr_aligned-addr); // nbytes to unmap
+  if(nunmap < 0)
+    nunmap = 0;
+  
+  vmaunmap(p->pagetable, addr_aligned, nunmap, v); // custom memory page unmap routine for mmapped pages.
+
+  if(addr <= v->addr && addr + sz > v->addr) { // unmap at the beginning
+    v->offset += addr + sz - v->addr;
+    v->addr = addr + sz;
+  }
+  v->length -= sz;
+
+  if(v->length <= 0) {
+    fileclose(v->f);
+    v->valid = 0;
+  }
+
+  return 0;  
 }
